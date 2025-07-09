@@ -1,7 +1,7 @@
 import asyncio
 import aiohttp
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from cryptoscan.backand.core.core_logger import get_logger
 from cryptoscan.backand.core.core_exceptions import TimeSyncException
@@ -113,7 +113,7 @@ class TimeServerSync:
             return int(local_time_ms + self.time_offset_ms)
         else:
             # Fallback на локальное UTC время
-            return int(datetime.now(timezone.utc)().timestamp() * 1000)
+            return int(datetime.now(timezone.utc).timestamp() * 1000)
     
     def get_sync_status(self) -> Dict:
         """Получить статус синхронизации"""

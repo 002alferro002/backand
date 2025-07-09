@@ -3,8 +3,15 @@ from pathlib import Path
 from typing import Dict, Any
 import asyncio
 import time
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    WATCHDOG_AVAILABLE = False
+    print("⚠️ Watchdog не установлен. Автоматическое обновление настроек недоступно.")
+    print("Установите: pip install watchdog")
 
 # Базовый путь проекта
 BASE_DIR = Path(__file__).parent
@@ -233,6 +240,10 @@ def start_settings_monitor():
     """Запуск мониторинга изменений файла настроек"""
     global _file_observer
     
+    if not WATCHDOG_AVAILABLE:
+        print("⚠️ Мониторинг настроек недоступен - watchdog не установлен")
+        return
+    
     try:
         if _file_observer is None:
             event_handler = SettingsFileHandler()
@@ -247,6 +258,9 @@ def start_settings_monitor():
 def stop_settings_monitor():
     """Остановка мониторинга изменений файла настроек"""
     global _file_observer
+    
+    if not WATCHDOG_AVAILABLE:
+        return
     
     if _file_observer:
         _file_observer.stop()

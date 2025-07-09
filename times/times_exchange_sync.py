@@ -122,4 +122,4 @@ class ExchangeTimeSync:
     
     def get_candle_close_time_utc(self, kline_start_time: int) -> datetime:
         """Получить время закрытия свечи в UTC"""
-        return datetime.utcfromtimestamp((kline_start_time + 60000) / 1000)
+        return datetime.fromtimestamp((kline_start_time + 60000) / 1000, tz=timezone.utc)
