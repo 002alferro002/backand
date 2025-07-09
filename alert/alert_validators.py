@@ -1,6 +1,6 @@
 from typing import Dict, Optional, List
+from datetime import datetime, timezone
 from cryptoscan.backand.core.core_logger import get_logger
-from cryptoscan.backand.core.core_utils import CoreUtils
 from cryptoscan.backand.settings import get_setting
 
 logger = get_logger(__name__)
@@ -37,7 +37,7 @@ class AlertValidators:
             
             # Проверяем кулдаун
             if last_alert_timestamp:
-                current_timestamp = CoreUtils.get_utc_timestamp_ms()
+                current_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
                 cooldown_period_ms = self.alert_grouping_minutes * 60 * 1000
                 if (current_timestamp - last_alert_timestamp) < cooldown_period_ms:
                     return {
@@ -143,7 +143,17 @@ class AlertValidators:
     
     def validate_symbol(self, symbol: str) -> bool:
         """Валидация торгового символа"""
-        return CoreUtils.validate_symbol(symbol)
+        if not symbol or not isinstance(symbol, str):
+            return False
+        
+        # Базовая валидация для Bybit символов
+        if not symbol.endswith('USDT'):
+            return False
+        
+        if len(symbol) < 5 or len(symbol) > 20:
+            return False
+        
+        return True
     
     def validate_kline_data(self, kline_data: Dict) -> Dict:
         """Валидация данных свечи"""

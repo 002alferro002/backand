@@ -1,8 +1,7 @@
 from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from cryptoscan.backand.core.core_logger import get_logger
 from cryptoscan.backand.core.core_exceptions import DatabaseException
-from cryptoscan.backand.core.core_utils import CoreUtils
 
 logger = get_logger(__name__)
 
@@ -166,7 +165,7 @@ class DatabaseQueries:
                                         offset_minutes: int = 0, volume_type: str = 'long') -> List[float]:
         """Получение исторических объемов LONG свечей"""
         try:
-            current_time_ms = CoreUtils.get_utc_timestamp_ms()
+            current_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
             offset_ms = offset_minutes * 60 * 1000
             start_time_ms = current_time_ms - (hours * 60 * 60 * 1000) - offset_ms
             end_time_ms = current_time_ms - offset_ms
@@ -216,7 +215,7 @@ class DatabaseQueries:
     async def check_data_integrity(self, symbol: str, hours: int) -> Dict:
         """Проверка целостности данных"""
         try:
-            current_time_ms = CoreUtils.get_utc_timestamp_ms()
+            current_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
             start_time_ms = current_time_ms - (hours * 60 * 60 * 1000)
             
             # Подсчитываем существующие свечи
@@ -292,7 +291,7 @@ class DatabaseQueries:
     async def cleanup_old_candles(self, symbol: str, retention_hours: int):
         """Очистка старых свечей"""
         try:
-            cutoff_time = CoreUtils.get_utc_timestamp_ms() - (retention_hours * 60 * 60 * 1000)
+            cutoff_time = int(datetime.now(timezone.utc).timestamp() * 1000) - (retention_hours * 60 * 60 * 1000)
             
             query = "DELETE FROM kline_data WHERE symbol = %s AND start_time < %s"
             deleted_count = await self.db_connection.execute_command(query, (symbol, cutoff_time))

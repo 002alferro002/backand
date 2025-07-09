@@ -256,7 +256,7 @@ async def historical_data_loader():
                             logger.info(f"📊 Загрузка исторических данных для {symbol} (целостность: {integrity['integrity_percentage']:.1f}%)")
                             
                             # Рассчитываем диапазон загрузки
-                            current_time_ms = CoreUtils.get_utc_timestamp_ms()
+                            current_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
                             end_time_ms = current_time_ms - (offset_minutes * 60 * 1000)
                             start_time_ms = end_time_ms - (int(total_hours * 60) * 60 * 1000)
                             

@@ -1,9 +1,9 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from cryptoscan.backand.core.core_logger import get_logger
-from cryptoscan.backand.core.core_utils import CoreUtils
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,8 @@ class ConnectionManager:
     async def send_personal_json(self, data: Dict[str, Any], websocket: WebSocket):
         """Отправка JSON данных конкретному клиенту"""
         try:
-            message = CoreUtils.safe_json_dumps(data)
+            import json
+            message = json.dumps(data, default=str)
             await websocket.send_text(message)
         except Exception as e:
             logger.error(f"Ошибка отправки личного JSON сообщения: {e}")
@@ -67,7 +68,8 @@ class ConnectionManager:
             return
 
         try:
-            message = CoreUtils.safe_json_dumps(data)
+            import json
+            message = json.dumps(data, default=str)
             await self.broadcast(message)
         except Exception as e:
             logger.error(f"Ошибка сериализации JSON для рассылки: {e}")
@@ -100,7 +102,7 @@ class ConnectionManager:
             "type": "system_notification",
             "notification_type": notification_type,
             "data": data,
-            "timestamp": CoreUtils.get_utc_timestamp_ms()
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
         }
         
         await self.broadcast_json(system_message)
@@ -112,7 +114,7 @@ class ConnectionManager:
             "error_type": error_type,
             "error_message": error_message,
             "details": details or {},
-            "timestamp": CoreUtils.get_utc_timestamp_ms()
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
         }
         
         await self.broadcast_json(error_notification)
@@ -124,7 +126,7 @@ class ConnectionManager:
             "component": component,
             "status": status,
             "details": details or {},
-            "timestamp": CoreUtils.get_utc_timestamp_ms()
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
         }
         
         await self.broadcast_json(status_update)
@@ -151,9 +153,10 @@ class ConnectionManager:
             try:
                 ping_message = {
                     "type": "ping",
-                    "timestamp": CoreUtils.get_utc_timestamp_ms()
+                    "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
                 }
-                await connection.send_text(CoreUtils.safe_json_dumps(ping_message))
+                import json
+                await connection.send_text(json.dumps(ping_message, default=str))
             except Exception as e:
                 logger.warning(f"Соединение не отвечает на ping: {e}")
                 disconnected.append(connection)
@@ -165,14 +168,15 @@ class ConnectionManager:
     async def handle_client_message(self, websocket: WebSocket, message: str):
         """Обработка сообщения от клиента"""
         try:
-            data = CoreUtils.safe_json_loads(message)
+            import json
+            data = json.loads(message)
             message_type = data.get('type')
             
             if message_type == 'ping':
                 # Отвечаем на ping от клиента
                 pong_message = {
                     "type": "pong",
-                    "timestamp": CoreUtils.get_utc_timestamp_ms()
+                    "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
                 }
                 await self.send_personal_json(pong_message, websocket)
                 
@@ -204,7 +208,7 @@ class ConnectionManager:
             "type": "subscription_confirmed",
             "subscription_type": subscription_type,
             "params": params,
-            "timestamp": CoreUtils.get_utc_timestamp_ms()
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
         }
         await self.send_personal_json(confirmation, websocket)
 
@@ -218,7 +222,7 @@ class ConnectionManager:
         confirmation = {
             "type": "unsubscription_confirmed",
             "subscription_type": subscription_type,
-            "timestamp": CoreUtils.get_utc_timestamp_ms()
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
         }
         await self.send_personal_json(confirmation, websocket)
 

@@ -6,7 +6,6 @@ from typing import List, Dict, Optional, Set
 from datetime import datetime, timedelta, timezone
 from cryptoscan.backand.core.core_logger import get_logger
 from cryptoscan.backand.core.core_exceptions import WebSocketException
-from cryptoscan.backand.core.core_utils import CoreUtils
 from cryptoscan.backand.settings import get_setting
 
 logger = get_logger(__name__)
@@ -253,7 +252,7 @@ class BybitWebSocketManager:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "is_closed": is_closed,
                     "streaming_active": self.streaming_active,
-                    "server_timestamp": CoreUtils.get_utc_timestamp_ms()
+                    "server_timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
                 }
 
                 await self.connection_manager.broadcast_json(stream_item)

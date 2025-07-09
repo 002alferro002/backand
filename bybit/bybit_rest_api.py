@@ -1,11 +1,10 @@
 import asyncio
 import aiohttp
 import requests
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
-from datetime import datetime
 from cryptoscan.backand.core.core_logger import get_logger
 from cryptoscan.backand.core.core_exceptions import APIException
-from cryptoscan.backand.core.core_utils import CoreUtils
 
 logger = get_logger(__name__)
 
@@ -230,7 +229,7 @@ class BybitRestAPI:
                         return {
                             'bids': [[float(bid[0]), float(bid[1])] for bid in result.get('b', [])],
                             'asks': [[float(ask[0]), float(ask[1])] for ask in result.get('a', [])],
-                            'timestamp': CoreUtils.get_utc_timestamp_ms()
+                            'timestamp': int(datetime.now(timezone.utc).timestamp() * 1000)
                         }
                     else:
                         logger.warning(f"⚠️ API ошибка при получении стакана для {symbol}: {data.get('retMsg')}")
