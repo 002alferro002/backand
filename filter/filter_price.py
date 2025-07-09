@@ -1,6 +1,6 @@
 import asyncio
 from typing import List, Dict, Set
-from datetime import datetime
+from datetime import datetime, timezone
 from cryptoscan.backand.core.core_logger import get_logger
 from cryptoscan.backand.core.core_exceptions import APIException
 from cryptoscan.backand.bybit.bybit_rest_api import BybitRestAPI
@@ -20,6 +20,7 @@ class PriceFilter:
         self.price_history_days = get_setting('PRICE_HISTORY_DAYS', 1000)
         self.price_drop_percentage = get_setting('PRICE_DROP_PERCENTAGE', 10.0)
         self.pairs_check_interval_minutes = get_setting('PAIRS_CHECK_INTERVAL_MINUTES', 30)
+        self.watchlist_auto_update = get_setting('WATCHLIST_AUTO_UPDATE', True)
         
         # Состояние
         self.is_running = False
@@ -27,6 +28,10 @@ class PriceFilter:
 
     async def start(self):
         """Запуск фильтрации торговых пар"""
+        if not self.watchlist_auto_update:
+            logger.info("🔍 Автоматическое обновление watchlist отключено")
+            return
+            
         self.is_running = True
         logger.info("🔍 Запуск фильтрации торговых пар по цене")
 
@@ -114,6 +119,10 @@ class PriceFilter:
 
     async def update_watchlist(self):
         """Обновление watchlist на основе критериев цены"""
+        if not self.watchlist_auto_update:
+            logger.debug("Автоматическое обновление watchlist отключено")
+            return []
+            
         try:
             logger.info("🔍 Начало обновления watchlist...")
             
@@ -211,9 +220,6 @@ class PriceFilter:
 
     def update_settings(self, new_settings: Dict):
         """Обновление настроек фильтра"""
-        if 'PRICE_CHECK_INTERVAL_MINUTES' in new_settings:
-            self.price_check_interval_minutes = new_settings['PRICE_CHECK_INTERVAL_MINUTES']
-        
         if 'PRICE_HISTORY_DAYS' in new_settings:
             self.price_history_days = new_settings['PRICE_HISTORY_DAYS']
         
@@ -223,13 +229,16 @@ class PriceFilter:
         if 'PAIRS_CHECK_INTERVAL_MINUTES' in new_settings:
             self.pairs_check_interval_minutes = new_settings['PAIRS_CHECK_INTERVAL_MINUTES']
         
+        if 'WATCHLIST_AUTO_UPDATE' in new_settings:
+            self.watchlist_auto_update = new_settings['WATCHLIST_AUTO_UPDATE']
+        
         logger.info("⚙️ Настройки фильтра цен обновлены")
 
     def get_settings(self) -> Dict:
         """Получение текущих настроек"""
         return {
-            'price_check_interval_minutes': self.price_check_interval_minutes,
             'price_history_days': self.price_history_days,
             'price_drop_percentage': self.price_drop_percentage,
-            'pairs_check_interval_minutes': self.pairs_check_interval_minutes
+            'pairs_check_interval_minutes': self.pairs_check_interval_minutes,
+            'watchlist_auto_update': self.watchlist_auto_update
         }

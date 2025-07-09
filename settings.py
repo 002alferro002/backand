@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
     # Настройки фильтра цен
     'PRICE_HISTORY_DAYS': '30',
     'PRICE_DROP_PERCENTAGE': '10.0',
+    'WATCHLIST_AUTO_UPDATE': 'True',
     
     # Настройки Telegram
     'TELEGRAM_BOT_TOKEN': '',
@@ -104,6 +105,7 @@ def create_env_file():
                               'CONSECUTIVE_LONG_COUNT', 'ALERT_GROUPING_MINUTES', 'DATA_RETENTION_HOURS', 
                               'UPDATE_INTERVAL_SECONDS', 'PAIRS_CHECK_INTERVAL_MINUTES'],
             'Фильтр цен': ['PRICE_CHECK_INTERVAL_MINUTES', 'PRICE_HISTORY_DAYS', 'PRICE_DROP_PERCENTAGE'],
+            'Watchlist': ['WATCHLIST_AUTO_UPDATE'],
             'Telegram': ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'],
             'Bybit API': ['BYBIT_API_KEY', 'BYBIT_API_SECRET'],
             'Логирование': ['LOG_LEVEL', 'LOG_FILE'],

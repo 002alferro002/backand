@@ -1,8 +1,8 @@
 import asyncio
 import os
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import List, Dict, Optional
-from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -170,7 +170,10 @@ async def lifespan(app: FastAPI):
             logger.info(f"📋 Установлен начальный watchlist: {len(initial_watchlist)} пар")
 
         # Запускаем фильтр цен
-        asyncio.create_task(price_filter.start())
+        if get_setting('WATCHLIST_AUTO_UPDATE', True):
+            asyncio.create_task(price_filter.start())
+        else:
+            logger.info("🔍 Автоматическое обновление watchlist отключено")
 
         # Запускаем WebSocket клиент
         bybit_websocket.is_running = True
@@ -429,6 +432,11 @@ async def add_to_watchlist(item: WatchlistAdd):
     try:
         await db_queries.add_to_watchlist(item.symbol)
 
+        # Добавляем пару в WebSocket менеджер
+        if bybit_websocket:
+            bybit_websocket.trading_pairs.add(item.symbol)
+            await bybit_websocket.subscribe_to_new_pairs({item.symbol})
+
         # Уведомляем клиентов об обновлении
         await connection_manager.broadcast_json({
             "type": "watchlist_updated",
@@ -454,6 +462,9 @@ async def get_settings():
         settings = {
             "volume_analyzer": alert_manager.get_settings() if alert_manager else {},
             "price_filter": price_filter.get_settings() if price_filter else {},
+            "watchlist": {
+                "auto_update": get_setting('WATCHLIST_AUTO_UPDATE', True)
+            },
             "alerts": {
                 "volume_alerts_enabled": get_setting('VOLUME_ALERTS_ENABLED', True),
                 "consecutive_alerts_enabled": get_setting('CONSECUTIVE_ALERTS_ENABLED', True),
@@ -506,7 +517,28 @@ async def update_settings(settings: dict):
         return {"status": "success", "settings": settings}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@app.delete("/api/watchlist/{symbol}")
+async def remove_from_watchlist(symbol: str):
+    """Удалить торговую пару из watchlist"""
+    try:
+        await db_queries.remove_from_watchlist(symbol)
 
+        # Удаляем пару из WebSocket менеджера
+        if bybit_websocket:
+            bybit_websocket.trading_pairs.discard(symbol)
+            await bybit_websocket.unsubscribe_from_pairs({symbol})
+
+        # Уведомляем клиентов об обновлении
+        await connection_manager.broadcast_json({
+            "type": "watchlist_updated",
+            "action": "removed",
+            "symbol": symbol
+        })
+
+        return {"status": "success", "symbol": symbol}
+    except Exception as e:
+        logger.error(f"Ошибка удаления из watchlist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Проверяем существование директории dist перед монтированием
 if os.path.exists("dist"):

@@ -2,7 +2,6 @@ import asyncio
 from typing import Dict, List, Optional, Set
 from datetime import datetime, timezone
 from cryptoscan.backand.core.core_logger import get_logger
-from cryptoscan.backand.core.core_utils import CoreUtils
 from cryptoscan.backand.core.core_exceptions import AlertException
 from cryptoscan.backand.alert.alert_types import AlertType, AlertData, AlertStatus
 from cryptoscan.backand.alert.alert_validators import AlertValidators
