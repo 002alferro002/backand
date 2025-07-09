@@ -1,12 +1,22 @@
 import os
 from pathlib import Path
 from typing import Dict, Any
+import asyncio
+import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 # Базовый путь проекта
 BASE_DIR = Path(__file__).parent
 
 # Путь к .env файлу
 ENV_FILE_PATH = BASE_DIR / '.env'
+
+# Глобальные переменные для системы обновления настроек
+_settings_cache = {}
+_last_modified = 0
+_settings_callbacks = []
+_file_observer = None
 
 # Настройки по умолчанию
 DEFAULT_SETTINGS = {
@@ -88,6 +98,17 @@ DEFAULT_SETTINGS = {
 }
 
 
+class SettingsFileHandler(FileSystemEventHandler):
+    """Обработчик изменений файла настроек"""
+    
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        
+        if event.src_path == str(ENV_FILE_PATH):
+            asyncio.create_task(reload_settings())
+
+
 def create_env_file():
     """Создание .env файла с настройками по умолчанию"""
     if ENV_FILE_PATH.exists():
@@ -130,6 +151,17 @@ def create_env_file():
 
 def load_settings() -> Dict[str, Any]:
     """Загрузка настроек из .env файла или создание файла с настройками по умолчанию"""
+    global _settings_cache, _last_modified
+    
+    # Проверяем, изменился ли файл
+    try:
+        current_modified = ENV_FILE_PATH.stat().st_mtime
+        if current_modified == _last_modified and _settings_cache:
+            return _settings_cache
+        _last_modified = current_modified
+    except FileNotFoundError:
+        pass
+    
     # Создаем .env файл если его нет
     if not ENV_FILE_PATH.exists():
         create_env_file()
@@ -153,7 +185,74 @@ def load_settings() -> Dict[str, Any]:
         if key not in settings:
             settings[key] = default_value
     
+    _settings_cache = settings
     return settings
+
+
+async def reload_settings():
+    """Асинхронная перезагрузка настроек"""
+    try:
+        # Небольшая задержка для завершения записи файла
+        await asyncio.sleep(0.1)
+        
+        # Очищаем кэш
+        global _settings_cache
+        _settings_cache = {}
+        
+        # Загружаем новые настройки
+        new_settings = load_settings()
+        
+        # Уведомляем все зарегистрированные компоненты
+        for callback in _settings_callbacks:
+            try:
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(new_settings)
+                else:
+                    callback(new_settings)
+            except Exception as e:
+                print(f"Ошибка обновления настроек в компоненте: {e}")
+        
+        print(f"✅ Настройки перезагружены из .env файла")
+        
+    except Exception as e:
+        print(f"❌ Ошибка перезагрузки настроек: {e}")
+
+
+def register_settings_callback(callback):
+    """Регистрация callback для уведомления об изменении настроек"""
+    _settings_callbacks.append(callback)
+
+
+def unregister_settings_callback(callback):
+    """Отмена регистрации callback"""
+    if callback in _settings_callbacks:
+        _settings_callbacks.remove(callback)
+
+
+def start_settings_monitor():
+    """Запуск мониторинга изменений файла настроек"""
+    global _file_observer
+    
+    try:
+        if _file_observer is None:
+            event_handler = SettingsFileHandler()
+            _file_observer = Observer()
+            _file_observer.schedule(event_handler, str(BASE_DIR), recursive=False)
+            _file_observer.start()
+            print("🔍 Мониторинг изменений .env файла запущен")
+    except Exception as e:
+        print(f"❌ Ошибка запуска мониторинга настроек: {e}")
+
+
+def stop_settings_monitor():
+    """Остановка мониторинга изменений файла настроек"""
+    global _file_observer
+    
+    if _file_observer:
+        _file_observer.stop()
+        _file_observer.join()
+        _file_observer = None
+        print("🛑 Мониторинг изменений .env файла остановлен")
 
 
 def get_setting(key: str, default: Any = None) -> Any:
@@ -177,8 +276,13 @@ def get_setting(key: str, default: Any = None) -> Any:
 
 def update_setting(key: str, value: Any):
     """Обновление настройки в .env файле"""
+    global _settings_cache
+    
     settings = load_settings()
     settings[key] = str(value)
+    
+    # Обновляем кэш
+    _settings_cache[key] = str(value)
     
     # Перезаписываем .env файл
     with open(ENV_FILE_PATH, 'w', encoding='utf-8') as f:
@@ -188,6 +292,8 @@ def update_setting(key: str, value: Any):
         for key, value in settings.items():
             if not key.startswith('#'):
                 f.write(f"{key}={value}\n")
+    
+    print(f"⚙️ Настройка {key} обновлена на {value}")
 
 
 # Инициализация настроек при импорте модуля

@@ -594,11 +594,38 @@ class AlertManager:
 
     def update_settings(self, new_settings: Dict):
         """Обновление настроек"""
-        self.settings.update(new_settings)
+        # Обновляем настройки из переданного словаря или из конфигурации
+        updated_settings = {}
+        
+        # Список ключей настроек, которые нужно обновить
+        setting_keys = [
+            'VOLUME_ALERTS_ENABLED', 'CONSECUTIVE_ALERTS_ENABLED', 'PRIORITY_ALERTS_ENABLED',
+            'ANALYSIS_HOURS', 'OFFSET_MINUTES', 'VOLUME_MULTIPLIER', 'MIN_VOLUME_USDT',
+            'CONSECUTIVE_LONG_COUNT', 'ALERT_GROUPING_MINUTES', 'DATA_RETENTION_HOURS',
+            'UPDATE_INTERVAL_SECONDS', 'NOTIFICATION_ENABLED', 'VOLUME_TYPE',
+            'ORDERBOOK_ENABLED', 'ORDERBOOK_SNAPSHOT_ON_ALERT', 'IMBALANCE_ENABLED',
+            'FAIR_VALUE_GAP_ENABLED', 'ORDER_BLOCK_ENABLED', 'BREAKER_BLOCK_ENABLED',
+            'PAIRS_CHECK_INTERVAL_MINUTES'
+        ]
+        
+        # Обновляем настройки из переданного словаря или загружаем из конфигурации
+        for key in setting_keys:
+            if key in new_settings:
+                # Преобразуем ключ в формат настроек
+                setting_key = key.lower()
+                updated_settings[setting_key] = new_settings[key]
+            else:
+                # Загружаем из конфигурации
+                from cryptoscan.backand.settings import get_setting
+                setting_key = key.lower()
+                updated_settings[setting_key] = get_setting(key, self.settings.get(setting_key))
+        
+        # Обновляем настройки
+        self.settings.update(updated_settings)
         
         # Обновляем настройки компонентов
-        self.validators.update_settings(new_settings)
-        self.imbalance_analyzer.update_settings(new_settings)
+        self.validators.update_settings(updated_settings)
+        self.imbalance_analyzer.update_settings(updated_settings)
         
         logger.info(f"⚙️ Настройки AlertManager обновлены")
 

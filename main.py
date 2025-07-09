@@ -12,7 +12,7 @@ import uvicorn
 import json
 
 # Импорты наших модулей
-from settings import get_setting
+from settings import get_setting, register_settings_callback, start_settings_monitor, stop_settings_monitor
 from core.core_logger import get_logger
 from database.database_connection import DatabaseConnection
 from database.database_tables import DatabaseTables
@@ -26,6 +26,40 @@ from times.times_manager import TimeManager
 from websocket.websocket_manager import ConnectionManager
 
 logger = get_logger(__name__)
+
+# Функция для обновления настроек во всех компонентах
+async def update_all_components_settings(new_settings: Dict):
+    """Обновление настроек во всех компонентах системы"""
+    try:
+        logger.info("🔄 Обновление настроек во всех компонентах...")
+        
+        # Обновляем настройки в alert_manager
+        if alert_manager:
+            alert_manager.update_settings(new_settings)
+        
+        # Обновляем настройки в price_filter
+        if price_filter:
+            price_filter.update_settings(new_settings)
+        
+        # Обновляем настройки в telegram_bot
+        if telegram_bot:
+            telegram_token = new_settings.get('TELEGRAM_BOT_TOKEN')
+            telegram_chat = new_settings.get('TELEGRAM_CHAT_ID')
+            if telegram_token or telegram_chat:
+                telegram_bot.update_settings(telegram_token, telegram_chat)
+        
+        # Уведомляем клиентов об обновлении настроек
+        if connection_manager:
+            await connection_manager.broadcast_json({
+                "type": "settings_updated",
+                "message": "Настройки обновлены из .env файла",
+                "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
+            })
+        
+        logger.info("✅ Настройки успешно обновлены во всех компонентах")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления настроек в компонентах: {e}")
 
 # Глобальные переменные
 db_connection = None
@@ -187,6 +221,12 @@ async def lifespan(app: FastAPI):
         # Запуск периодической очистки WebSocket соединений
         asyncio.create_task(connection_manager.start_periodic_cleanup())
 
+        # Регистрируем callback для обновления настроек
+        register_settings_callback(update_all_components_settings)
+        
+        # Запускаем мониторинг изменений .env файла
+        start_settings_monitor()
+
         logger.info("✅ Система успешно запущена!")
 
     except Exception as e:
@@ -197,6 +237,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("🛑 Остановка системы...")
+    
+    # Останавливаем мониторинг настроек
+    stop_settings_monitor()
+    
     if time_manager:
         await time_manager.stop()
     if bybit_websocket:
@@ -498,6 +542,18 @@ async def get_settings():
 async def update_settings(settings: dict):
     """Обновить настройки анализатора"""
     try:
+        # Обновляем настройки в .env файле
+        from settings import update_setting
+        for key, value in settings.items():
+            if isinstance(value, dict):
+                # Для вложенных настроек
+                for sub_key, sub_value in value.items():
+                    env_key = sub_key.upper()
+                    update_setting(env_key, sub_value)
+            else:
+                update_setting(key.upper(), value)
+        
+        # Обновляем настройки в компонентах (это произойдет автоматически через мониторинг файла)
         if alert_manager and 'volume_analyzer' in settings:
             alert_manager.update_settings(settings['volume_analyzer'])
 
@@ -510,6 +566,9 @@ async def update_settings(settings: dict):
         if price_filter and 'price_filter' in settings:
             price_filter.update_settings(settings['price_filter'])
 
+        if price_filter and 'watchlist' in settings:
+            price_filter.update_settings(settings['watchlist'])
+
         await connection_manager.broadcast_json({
             "type": "settings_updated",
             "data": settings
@@ -518,6 +577,17 @@ async def update_settings(settings: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 @app.delete("/api/watchlist/{symbol}")
+@app.post("/api/settings/reload")
+async def reload_settings_endpoint():
+    """Принудительная перезагрузка настроек из .env файла"""
+    try:
+        from settings import reload_settings
+        await reload_settings()
+        
+        return {"status": "success", "message": "Настройки перезагружены из .env файла"}
+    except Exception as e:
+        logger.error(f"Ошибка перезагрузки настроек: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 async def remove_from_watchlist(symbol: str):
     """Удалить торговую пару из watchlist"""
     try:

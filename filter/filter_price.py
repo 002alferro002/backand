@@ -220,17 +220,28 @@ class PriceFilter:
 
     def update_settings(self, new_settings: Dict):
         """Обновление настроек фильтра"""
-        if 'PRICE_HISTORY_DAYS' in new_settings:
-            self.price_history_days = new_settings['PRICE_HISTORY_DAYS']
+        # Обновляем настройки из переданного словаря или из конфигурации
+        from cryptoscan.backand.settings import get_setting
         
-        if 'PRICE_DROP_PERCENTAGE' in new_settings:
-            self.price_drop_percentage = new_settings['PRICE_DROP_PERCENTAGE']
+        # Обновляем настройки
+        self.price_history_days = new_settings.get('PRICE_HISTORY_DAYS', get_setting('PRICE_HISTORY_DAYS', self.price_history_days))
+        self.price_drop_percentage = new_settings.get('PRICE_DROP_PERCENTAGE', get_setting('PRICE_DROP_PERCENTAGE', self.price_drop_percentage))
+        self.pairs_check_interval_minutes = new_settings.get('PAIRS_CHECK_INTERVAL_MINUTES', get_setting('PAIRS_CHECK_INTERVAL_MINUTES', self.pairs_check_interval_minutes))
         
-        if 'PAIRS_CHECK_INTERVAL_MINUTES' in new_settings:
-            self.pairs_check_interval_minutes = new_settings['PAIRS_CHECK_INTERVAL_MINUTES']
+        # Обновляем настройку автообновления watchlist
+        old_auto_update = self.watchlist_auto_update
+        self.watchlist_auto_update = new_settings.get('WATCHLIST_AUTO_UPDATE', get_setting('WATCHLIST_AUTO_UPDATE', self.watchlist_auto_update))
         
-        if 'WATCHLIST_AUTO_UPDATE' in new_settings:
-            self.watchlist_auto_update = new_settings['WATCHLIST_AUTO_UPDATE']
+        # Если автообновление было включено, запускаем фильтр
+        if not old_auto_update and self.watchlist_auto_update and not self.is_running:
+            import asyncio
+            asyncio.create_task(self.start())
+            logger.info("🔍 Автообновление watchlist включено - запуск фильтра")
+        
+        # Если автообновление было отключено, останавливаем фильтр
+        elif old_auto_update and not self.watchlist_auto_update and self.is_running:
+            self.is_running = False
+            logger.info("🛑 Автообновление watchlist отключено - остановка фильтра")
         
         logger.info("⚙️ Настройки фильтра цен обновлены")
 
