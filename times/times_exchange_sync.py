@@ -53,7 +53,7 @@ class ExchangeTimeSync:
 
                             # Рассчитываем смещение биржи относительно точного UTC
                             self.exchange_time_offset = exchange_time - adjusted_accurate_time
-                            self.last_exchange_sync = datetime.now(timezone.utc)()
+                            self.last_exchange_sync = datetime.now(timezone.utc)
                             self.is_exchange_synced = True
 
                             # Проверяем корректность времени
@@ -96,7 +96,7 @@ class ExchangeTimeSync:
             'is_synced': self.is_exchange_synced,
             'last_sync': self.last_exchange_sync.isoformat() if self.last_exchange_sync else None,
             'time_offset_ms': self.exchange_time_offset,
-            'sync_age_seconds': (datetime.now(timezone.utc)() - self.last_exchange_sync).total_seconds() if self.last_exchange_sync else None,
+            'sync_age_seconds': (datetime.now(timezone.utc) - self.last_exchange_sync).total_seconds() if self.last_exchange_sync else None,
             'exchange_time': self.get_exchange_timestamp_ms(),
             'status': 'synced' if self.is_exchange_synced else 'not_synced'
         }
@@ -109,7 +109,7 @@ class ExchangeTimeSync:
         if not self.is_exchange_synced or not self.last_exchange_sync:
             return False
         
-        age_seconds = (datetime.now(timezone.utc)() - self.last_exchange_sync).total_seconds()
+        age_seconds = (datetime.now(timezone.utc) - self.last_exchange_sync).total_seconds()
         return age_seconds < max_age_seconds
     
     def is_candle_closed(self, kline_data: dict) -> bool:

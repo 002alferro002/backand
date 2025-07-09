@@ -78,6 +78,89 @@ class TelegramBot:
             logger.error(f"Ошибка отправки алерта по объему в Telegram: {e}")
             return False
 
+    async def send_preliminary_alert(self, alert_data: Dict) -> bool:
+        """Отправка предварительного алерта в Telegram"""
+        if not self.enabled:
+            return False
+
+        try:
+            symbol = alert_data['symbol']
+            price = alert_data['price']
+            volume_ratio = alert_data.get('volume_ratio', 0)
+            current_volume = alert_data.get('current_volume_usdt', 0)
+            timestamp = alert_data['timestamp']
+            
+            # Форматируем время
+            time_str = self._format_timestamp(timestamp)
+            
+            message = f"""
+⚡ <b>ПРЕДВАРИТЕЛЬНЫЙ СИГНАЛ</b>
+
+💰 <b>Пара:</b> {symbol}
+💵 <b>Цена:</b> ${price:,.8f}
+📊 <b>Превышение объема:</b> {volume_ratio}x
+📈 <b>Объем:</b> ${current_volume:,.0f}
+🕐 <b>Время:</b> {time_str}
+
+⏳ <b>Ожидаем закрытия свечи для подтверждения...</b>
+
+🔗 <a href="https://www.tradingview.com/chart/?symbol=BYBIT:{symbol.replace('USDT', '')}USDT.P&interval=1">Открыть в TradingView</a>
+
+#PreliminaryAlert #{symbol.replace('USDT', '')}
+            """.strip()
+            
+            return await self._send_message(message)
+
+        except Exception as e:
+            logger.error(f"Ошибка отправки предварительного алерта в Telegram: {e}")
+            return False
+
+    async def send_final_alert(self, alert_data: Dict) -> bool:
+        """Отправка финального алерта в Telegram"""
+        if not self.enabled:
+            return False
+
+        try:
+            symbol = alert_data['symbol']
+            price = alert_data['price']
+            volume_ratio = alert_data.get('volume_ratio', 0)
+            is_true_signal = alert_data.get('is_true_signal', False)
+            timestamp = alert_data.get('close_timestamp', alert_data['timestamp'])
+            preliminary_timestamp = alert_data.get('preliminary_timestamp')
+            
+            # Определяем статус и эмодзи
+            if is_true_signal:
+                emoji = "✅"
+                status = "Истинный LONG"
+            else:
+                emoji = "❌"
+                status = "Ложный сигнал (SHORT)"
+            
+            # Форматируем время
+            time_str = self._format_timestamp(timestamp)
+            preliminary_time_str = self._format_timestamp(preliminary_timestamp) if preliminary_timestamp else "N/A"
+            
+            message = f"""
+{emoji} <b>ФИНАЛЬНЫЙ СИГНАЛ</b>
+
+💰 <b>Пара:</b> {symbol}
+💵 <b>Цена закрытия:</b> ${price:,.8f}
+📊 <b>Превышение объема:</b> {volume_ratio}x
+🎯 <b>Результат:</b> {status}
+🕐 <b>Предварительный:</b> {preliminary_time_str}
+🕐 <b>Закрытие:</b> {time_str}
+
+🔗 <a href="https://www.tradingview.com/chart/?symbol=BYBIT:{symbol.replace('USDT', '')}USDT.P&interval=1">Открыть в TradingView</a>
+
+#FinalAlert #{symbol.replace('USDT', '')}
+            """.strip()
+            
+            return await self._send_message(message)
+
+        except Exception as e:
+            logger.error(f"Ошибка отправки финального алерта в Telegram: {e}")
+            return False
+
     async def send_consecutive_alert(self, alert_data: Dict) -> bool:
         """Отправка алерта по подряд идущим свечам в Telegram"""
         if not self.enabled:

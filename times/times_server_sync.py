@@ -30,7 +30,7 @@ class TimeServerSync:
                 success = await self._sync_with_server(server_url)
                 if success:
                     self.is_synced = True
-                    self.last_sync = datetime.now(timezone.utc)()
+                    self.last_sync = datetime.now(timezone.utc)
                     logger.info(f"✅ Синхронизация с сервером времени успешна: {server_url}")
                     logger.info(f"⏰ Смещение времени: {self.time_offset_ms}мс")
                     return True
@@ -121,7 +121,7 @@ class TimeServerSync:
             'is_synced': self.is_synced,
             'last_sync': self.last_sync.isoformat() if self.last_sync else None,
             'time_offset_ms': self.time_offset_ms,
-            'sync_age_seconds': (datetime.now(timezone.utc)() - self.last_sync).total_seconds() if self.last_sync else None,
+            'sync_age_seconds': (datetime.now(timezone.utc) - self.last_sync).total_seconds() if self.last_sync else None,
             'accurate_utc_time': self.get_accurate_utc_timestamp_ms(),
             'status': 'synced' if self.is_synced else 'not_synced'
         }
@@ -131,5 +131,5 @@ class TimeServerSync:
         if not self.is_synced or not self.last_sync:
             return False
         
-        age_seconds = (datetime.now(timezone.utc)() - self.last_sync).total_seconds()
+        age_seconds = (datetime.now(timezone.utc) - self.last_sync).total_seconds()
         return age_seconds < max_age_seconds

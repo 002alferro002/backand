@@ -61,12 +61,12 @@ class TimeManager:
 
     async def _periodic_sync(self):
         """Периодическая синхронизация времени"""
-        last_time_server_sync = datetime.now(timezone.utc)()
-        last_exchange_sync = datetime.now(timezone.utc)()
+        last_time_server_sync = datetime.now(timezone.utc)
+        last_exchange_sync = datetime.now(timezone.utc)
         
         while self.is_running:
             try:
-                current_time = datetime.now(timezone.utc)()
+                current_time = datetime.now(timezone.utc)
                 
                 # Синхронизация с серверами времени каждый час
                 if (current_time - last_time_server_sync).total_seconds() > self.time_server_sync_interval:

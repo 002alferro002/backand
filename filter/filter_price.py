@@ -17,9 +17,8 @@ class PriceFilter:
         self.bybit_api = BybitRestAPI()
         
         # Настройки фильтра
-        self.price_check_interval_minutes = get_setting('PRICE_CHECK_INTERVAL_MINUTES', 5)
         self.price_history_days = get_setting('PRICE_HISTORY_DAYS', 1000)
-        self.price_drop_percentage = get_setting('PRICE_DROP_PERCENTAGE', 40.0)
+        self.price_drop_percentage = get_setting('PRICE_DROP_PERCENTAGE', 10.0)
         self.pairs_check_interval_minutes = get_setting('PAIRS_CHECK_INTERVAL_MINUTES', 30)
         
         # Состояние

@@ -171,10 +171,12 @@ class DatabaseQueries:
             start_time_ms = current_time_ms - (hours * 60 * 60 * 1000) - offset_ms
             end_time_ms = current_time_ms - offset_ms
             
-            if volume_type == 'long':
+            if volume_type.lower() == 'long':
                 condition = "AND is_long = true"
+            elif volume_type.lower() == 'short':
+                condition = "AND is_long = false"
             else:
-                condition = ""
+                condition = ""  # ALL - все свечи
             
             query = f"""
             SELECT volume, close_price

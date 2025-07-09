@@ -51,6 +51,12 @@ class AlertManager:
 
         # Кэш для отслеживания состояния алертов (timestamp в миллисекундах UTC)
         self.alert_cooldowns = {}  # symbol -> last alert timestamp_ms
+        
+        # Счетчики подряд идущих LONG свечей
+        self.consecutive_long_counters = {}  # symbol -> count
+        
+        # Кэш предварительных сигналов
+        self.preliminary_signals = {}  # symbol -> signal_data
 
         logger.info(f"AlertManager инициализирован с синхронизацией времени UTC: {self.time_manager is not None}")
 
@@ -71,6 +77,15 @@ class AlertManager:
         alerts = []
 
         try:
+            # Проверяем предварительный сигнал для незакрытых свечей
+            if not kline_data.get('confirm', False):
+                preliminary_alert = await self._check_preliminary_volume_signal(symbol, kline_data)
+                if preliminary_alert:
+                    alerts.append(preliminary_alert)
+                    # Сохраняем предварительный сигнал
+                    self.preliminary_signals[symbol] = preliminary_alert
+                return alerts
+            
             # Проверка закрытия свечи
             if self.time_manager and hasattr(self.time_manager, 'is_candle_closed'):
                 is_closed = self.time_manager.is_candle_closed(kline_data)
@@ -98,6 +113,17 @@ class AlertManager:
         alerts = []
 
         try:
+            # Обновляем счетчик подряд идущих LONG свечей
+            await self._update_consecutive_long_counter(symbol, kline_data)
+            
+            # Проверяем финальный объемный сигнал (если был предварительный)
+            if symbol in self.preliminary_signals:
+                final_alert = await self._check_final_volume_signal(symbol, kline_data)
+                if final_alert:
+                    alerts.append(final_alert)
+                # Удаляем предварительный сигнал
+                del self.preliminary_signals[symbol]
+            
             # Проверяем алерт по объему
             if self.settings['volume_alerts_enabled']:
                 volume_alert = await self._check_volume_alert(symbol, kline_data)
@@ -196,22 +222,163 @@ class AlertManager:
             logger.error(f"❌ Ошибка проверки алерта по объему для {symbol}: {e}")
             return None
 
+    async def _check_preliminary_volume_signal(self, symbol: str, kline_data: Dict) -> Optional[Dict]:
+        """Проверка предварительного сигнала по объему для незакрытой свечи"""
+        try:
+            # Проверяем, является ли текущая свеча LONG
+            current_price = float(kline_data['close'])
+            open_price = float(kline_data['open'])
+            
+            if current_price <= open_price:
+                return None  # Свеча не LONG
+            
+            # Рассчитываем объем в USDT
+            current_volume_usdt = float(kline_data['volume']) * current_price
+            
+            # Проверяем минимальный объем
+            if current_volume_usdt < self.settings['min_volume_usdt']:
+                return None
+            
+            # Получаем исторические объемы
+            historical_volumes = await self.db_queries.get_historical_long_volumes(
+                symbol,
+                self.settings['analysis_hours'],
+                offset_minutes=self.settings['offset_minutes'],
+                volume_type=self.settings['volume_type']
+            )
+            
+            if len(historical_volumes) < 10:
+                return None
+            
+            # Рассчитываем средний объем и коэффициент
+            average_volume = sum(historical_volumes) / len(historical_volumes)
+            volume_ratio = current_volume_usdt / average_volume if average_volume > 0 else 0
+            
+            # Проверяем превышение объема
+            if volume_ratio < self.settings['volume_multiplier']:
+                return None
+            
+            current_timestamp_ms = self._get_current_timestamp_ms()
+            
+            # Создаем данные свечи для алерта
+            candle_data = {
+                'open': open_price,
+                'high': float(kline_data['high']),
+                'low': float(kline_data['low']),
+                'close': current_price,
+                'volume': float(kline_data['volume']),
+                'alert_level': current_price
+            }
+            
+            alert_data = {
+                'symbol': symbol,
+                'alert_type': 'preliminary_volume_spike',
+                'price': current_price,
+                'volume_ratio': round(volume_ratio, 2),
+                'current_volume_usdt': int(current_volume_usdt),
+                'average_volume_usdt': int(average_volume),
+                'timestamp': current_timestamp_ms,
+                'is_closed': False,
+                'is_preliminary': True,
+                'candle_data': candle_data,
+                'message': f"Предварительный сигнал: объем превышен в {volume_ratio:.2f}x раз"
+            }
+            
+            logger.info(f"⚡ Предварительный сигнал по объему для {symbol}: {volume_ratio:.2f}x")
+            return alert_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки предварительного сигнала для {symbol}: {e}")
+            return None
+    
+    async def _check_final_volume_signal(self, symbol: str, kline_data: Dict) -> Optional[Dict]:
+        """Проверка финального сигнала по объему для закрытой свечи"""
+        try:
+            preliminary_signal = self.preliminary_signals.get(symbol)
+            if not preliminary_signal:
+                return None
+            
+            # Проверяем, закрылась ли свеча в LONG
+            close_price = float(kline_data['close'])
+            open_price = float(kline_data['open'])
+            is_true_long = close_price > open_price
+            
+            current_timestamp_ms = self._get_current_timestamp_ms()
+            
+            # Обновляем данные свечи
+            candle_data = {
+                'open': open_price,
+                'high': float(kline_data['high']),
+                'low': float(kline_data['low']),
+                'close': close_price,
+                'volume': float(kline_data['volume']),
+                'alert_level': close_price
+            }
+            
+            alert_data = {
+                'symbol': symbol,
+                'alert_type': 'final_volume_spike',
+                'price': close_price,
+                'volume_ratio': preliminary_signal['volume_ratio'],
+                'current_volume_usdt': preliminary_signal['current_volume_usdt'],
+                'average_volume_usdt': preliminary_signal['average_volume_usdt'],
+                'timestamp': current_timestamp_ms,
+                'close_timestamp': current_timestamp_ms,
+                'is_closed': True,
+                'is_true_signal': is_true_long,
+                'is_preliminary': False,
+                'candle_data': candle_data,
+                'preliminary_timestamp': preliminary_signal['timestamp'],
+                'message': f"Финальный сигнал: {'истинный' if is_true_long else 'ложный'} LONG (объем {preliminary_signal['volume_ratio']}x)"
+            }
+            
+            logger.info(f"✅ Финальный сигнал для {symbol}: {'истинный' if is_true_long else 'ложный'} LONG")
+            return alert_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки финального сигнала для {symbol}: {e}")
+            return None
+    
+    async def _update_consecutive_long_counter(self, symbol: str, kline_data: Dict):
+        """Обновление счетчика подряд идущих LONG свечей"""
+        try:
+            close_price = float(kline_data['close'])
+            open_price = float(kline_data['open'])
+            is_long = close_price > open_price
+            
+            if is_long:
+                # Увеличиваем счетчик
+                self.consecutive_long_counters[symbol] = self.consecutive_long_counters.get(symbol, 0) + 1
+                logger.debug(f"📈 {symbol}: подряд LONG свечей = {self.consecutive_long_counters[symbol]}")
+            else:
+                # Сбрасываем счетчик
+                if symbol in self.consecutive_long_counters:
+                    logger.debug(f"📉 {symbol}: счетчик LONG свечей сброшен (была SHORT)")
+                    del self.consecutive_long_counters[symbol]
+                    
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления счетчика LONG свечей для {symbol}: {e}")
+
     async def _check_consecutive_long_alert(self, symbol: str, kline_data: Dict) -> Optional[Dict]:
         """Проверка алерта по подряд идущим LONG свечам"""
         try:
-            # Получаем последние свечи
-            recent_candles = await self.db_queries.get_recent_candles(
-                symbol, self.settings['consecutive_long_count'] + 5
-            )
-
-            # Валидация алерта
-            validation_result = self.validators.validate_consecutive_alert(symbol, recent_candles)
-
-            if not validation_result['valid']:
-                logger.debug(f"Алерт по последовательности для {symbol} не прошел валидацию: {validation_result['reason']}")
+            # Используем счетчик вместо проверки базы данных
+            consecutive_count = self.consecutive_long_counters.get(symbol, 0)
+            
+            if consecutive_count < self.settings['consecutive_long_count']:
                 return None
-
+            
+            # Проверяем кулдаун для consecutive алертов
+            last_alert_key = f"{symbol}_consecutive"
+            last_alert_timestamp = self.alert_cooldowns.get(last_alert_key)
             current_timestamp_ms = self._get_current_timestamp_ms()
+            
+            if last_alert_timestamp:
+                cooldown_period_ms = self.settings['alert_grouping_minutes'] * 60 * 1000
+                if (current_timestamp_ms - last_alert_timestamp) < cooldown_period_ms:
+                    # Обновляем только счетчик в существующем алерте
+                    return None
+
             current_price = float(kline_data['close'])
 
             # Создаем данные свечи
@@ -231,17 +398,20 @@ class AlertManager:
                 'symbol': symbol,
                 'alert_type': AlertType.CONSECUTIVE_LONG.value,
                 'price': current_price,
-                'consecutive_count': validation_result['consecutive_count'],
+                'consecutive_count': consecutive_count,
                 'timestamp': current_timestamp_ms,
                 'close_timestamp': current_timestamp_ms,
                 'is_closed': True,
                 'has_imbalance': has_imbalance,
                 'imbalance_data': imbalance_data,
                 'candle_data': candle_data,
-                'message': f"{validation_result['consecutive_count']} подряд идущих LONG свечей (закрытых)"
+                'message': f"{consecutive_count} подряд идущих LONG свечей (закрытых)"
             }
 
-            logger.info(f"✅ Алерт по последовательности для {symbol}: {validation_result['consecutive_count']} LONG свечей")
+            # Обновляем кулдаун
+            self.alert_cooldowns[last_alert_key] = current_timestamp_ms
+            
+            logger.info(f"✅ Алерт по последовательности для {symbol}: {consecutive_count} LONG свечей")
             return alert_data
 
         except Exception as e:
@@ -256,15 +426,15 @@ class AlertManager:
             consecutive_alert = None
 
             for alert in current_alerts:
-                if alert['alert_type'] == AlertType.VOLUME_SPIKE.value:
+                if alert['alert_type'] in [AlertType.VOLUME_SPIKE.value, 'final_volume_spike']:
                     volume_alert = alert
                 elif alert['alert_type'] == AlertType.CONSECUTIVE_LONG.value:
                     consecutive_alert = alert
 
-            # Проверяем недавний объемный алерт
+            # Проверяем недавний объемный алерт в диапазоне consecutive свечей
             recent_volume_alert = False
             if consecutive_alert:
-                recent_volume_alert = await self._check_recent_volume_alert(
+                recent_volume_alert = await self._check_recent_volume_alert_in_range(
                     symbol, consecutive_alert['consecutive_count']
                 )
 
@@ -324,14 +494,30 @@ class AlertManager:
             logger.error(f"❌ Ошибка проверки приоритетного сигнала для {symbol}: {e}")
             return None
 
-    async def _check_recent_volume_alert(self, symbol: str, candles_back: int) -> bool:
+    async def _check_recent_volume_alert_in_range(self, symbol: str, candles_back: int) -> bool:
         """Проверка, был ли объемный алерт в последних N свечах"""
         try:
-            # Здесь должна быть реализация проверки недавних алертов
-            # Пока возвращаем False
+            # Проверяем кулдауны объемных алертов
+            current_timestamp_ms = self._get_current_timestamp_ms()
+            
+            # Проверяем обычные объемные алерты
+            last_volume_alert = self.alert_cooldowns.get(symbol)
+            if last_volume_alert:
+                # Проверяем, был ли алерт в последние N минут (примерно N свечей)
+                time_range_ms = candles_back * 60 * 1000  # N минут в миллисекундах
+                if (current_timestamp_ms - last_volume_alert) <= time_range_ms:
+                    return True
+            
+            # Проверяем предварительные сигналы
+            if symbol in self.preliminary_signals:
+                preliminary_time = self.preliminary_signals[symbol]['timestamp']
+                time_range_ms = candles_back * 60 * 1000
+                if (current_timestamp_ms - preliminary_time) <= time_range_ms:
+                    return True
+            
             return False
         except Exception as e:
-            logger.error(f"❌ Ошибка проверки недавних объемных алертов для {symbol}: {e}")
+            logger.error(f"❌ Ошибка проверки недавних объемных алертов в диапазоне для {symbol}: {e}")
             return False
 
     async def _analyze_imbalance(self, symbol: str) -> Optional[Dict]:
@@ -387,7 +573,11 @@ class AlertManager:
 
             # Отправляем в Telegram
             if self.telegram_bot:
-                if alert_data['alert_type'] == AlertType.VOLUME_SPIKE.value:
+                if alert_data['alert_type'] == 'preliminary_volume_spike':
+                    await self.telegram_bot.send_preliminary_alert(alert_data)
+                elif alert_data['alert_type'] == 'final_volume_spike':
+                    await self.telegram_bot.send_final_alert(alert_data)
+                elif alert_data['alert_type'] == AlertType.VOLUME_SPIKE.value:
                     await self.telegram_bot.send_volume_alert(alert_data)
                 elif alert_data['alert_type'] == AlertType.CONSECUTIVE_LONG.value:
                     await self.telegram_bot.send_consecutive_alert(alert_data)

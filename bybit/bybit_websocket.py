@@ -3,7 +3,7 @@ import json
 import logging
 import websockets
 from typing import List, Dict, Optional, Set
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from cryptoscan.backand.core.core_logger import get_logger
 from cryptoscan.backand.core.core_exceptions import WebSocketException
 from cryptoscan.backand.core.core_utils import CoreUtils
@@ -38,7 +38,7 @@ class BybitWebSocketManager:
         # Мониторинг соединения
         self.last_message_time = None
         self.messages_received = 0
-        self.last_stats_log = datetime.now(timezone.utc)()
+        self.last_stats_log = datetime.now(timezone.utc)
         self.ping_task = None
 
         # Настройки переподключения
@@ -65,7 +65,7 @@ class BybitWebSocketManager:
             ) as websocket:
                 self.websocket = websocket
                 self.websocket_connected = True
-                self.last_message_time = datetime.now(timezone.utc)()
+                self.last_message_time = datetime.now(timezone.utc)
 
                 # Сбрасываем отслеживание подписок
                 self.subscribed_pairs.clear()
@@ -141,7 +141,7 @@ class BybitWebSocketManager:
     async def _handle_message(self, message: str):
         """Обработка входящих сообщений"""
         try:
-            self.last_message_time = datetime.now(timezone.utc)()
+            self.last_message_time = datetime.now(timezone.utc)
             self.messages_received += 1
 
             data = json.loads(message)
@@ -163,10 +163,9 @@ class BybitWebSocketManager:
                 await self._handle_kline_data(data)
 
             # Логируем статистику каждые 5 минут
-            if (datetime.now(timezone.utc)() - self.last_stats_log).total_seconds() > 300:
+            if (datetime.now(timezone.utc) - self.last_stats_log).total_seconds() > 300:
                 logger.info(f"📊 WebSocket статистика: {self.messages_received} сообщений, "
                            f"подписано на {len(self.subscribed_pairs)} пар")
-                self.last_stats_log = datetime.now(timezone.utc)()
 
         except json.JSONDecodeError as e:
             logger.warning(f"⚠️ Некорректный JSON от WebSocket: {e}")
@@ -251,7 +250,7 @@ class BybitWebSocketManager:
                     "type": "kline_update",
                     "symbol": symbol,
                     "data": formatted_data,
-                    "timestamp": datetime.now(timezone.utc)().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "is_closed": is_closed,
                     "streaming_active": self.streaming_active,
                     "server_timestamp": CoreUtils.get_utc_timestamp_ms()
@@ -273,7 +272,7 @@ class BybitWebSocketManager:
                     "subscribed_count": len(self.subscribed_pairs),
                     "pending_count": len(self.subscription_pending),
                     "streaming_active": self.streaming_active,
-                    "timestamp": datetime.now(timezone.utc)().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
 
                 if reason:
@@ -286,7 +285,7 @@ class BybitWebSocketManager:
 
     async def _monitor_connection(self):
         """Мониторинг состояния WebSocket соединения"""
-        connection_start_time = datetime.now(timezone.utc)()
+        connection_start_time = datetime.now(timezone.utc)
 
         while self.is_running and self.websocket_connected:
             try:
@@ -295,7 +294,7 @@ class BybitWebSocketManager:
                 if not self.websocket_connected:
                     break
 
-                current_time = datetime.now(timezone.utc)()
+                current_time = datetime.now(timezone.utc)
 
                 # Проверяем время последнего сообщения
                 if self.last_message_time:

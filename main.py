@@ -162,6 +162,13 @@ async def lifespan(app: FastAPI):
         # Запуск всех сервисов
         logger.info("🔄 Запуск сервисов...")
 
+        # Получаем начальный watchlist
+        initial_watchlist = await db_queries.get_watchlist()
+        if initial_watchlist:
+            # Устанавливаем торговые пары в WebSocket менеджер
+            bybit_websocket.trading_pairs = set(initial_watchlist)
+            logger.info(f"📋 Установлен начальный watchlist: {len(initial_watchlist)} пар")
+
         # Запускаем фильтр цен
         asyncio.create_task(price_filter.start())
 
@@ -169,6 +176,8 @@ async def lifespan(app: FastAPI):
         bybit_websocket.is_running = True
         asyncio.create_task(bybit_websocket_loop())
 
+        asyncio.create_task(historical_data_loader())
+        
         # Запуск периодической очистки данных
         asyncio.create_task(periodic_cleanup())
 
@@ -222,6 +231,79 @@ async def bybit_websocket_loop():
                     bybit_websocket.is_running = False
                     break
 
+
+async def historical_data_loader():
+    """Периодическая загрузка исторических данных"""
+    while True:
+        try:
+            if db_queries and bybit_api:
+                # Получаем текущий watchlist
+                watchlist = await db_queries.get_watchlist()
+                
+                for symbol in watchlist:
+                    try:
+                        # Проверяем целостность данных
+                        analysis_hours = get_setting('ANALYSIS_HOURS', 1)
+                        offset_minutes = get_setting('OFFSET_MINUTES', 0)
+                        
+                        # Рассчитываем период загрузки
+                        total_hours = analysis_hours + (offset_minutes / 60)
+                        
+                        integrity = await db_queries.check_data_integrity(symbol, int(total_hours * 60))  # в минутах
+                        
+                        # Если целостность данных менее 90%, загружаем недостающие данные
+                        if integrity['integrity_percentage'] < 90:
+                            logger.info(f"📊 Загрузка исторических данных для {symbol} (целостность: {integrity['integrity_percentage']:.1f}%)")
+                            
+                            # Рассчитываем диапазон загрузки
+                            current_time_ms = CoreUtils.get_utc_timestamp_ms()
+                            end_time_ms = current_time_ms - (offset_minutes * 60 * 1000)
+                            start_time_ms = end_time_ms - (int(total_hours * 60) * 60 * 1000)
+                            
+                            # Загружаем данные пакетами
+                            batch_size_hours = 24  # 24 часа за раз
+                            current_start = start_time_ms
+                            
+                            while current_start < end_time_ms:
+                                current_end = min(current_start + (batch_size_hours * 60 * 60 * 1000), end_time_ms)
+                                
+                                try:
+                                    klines = await bybit_api.get_kline_data(symbol, current_start, current_end)
+                                    
+                                    for kline in klines:
+                                        # Сохраняем как закрытую свечу
+                                        kline_data = {
+                                            'start': kline['timestamp'],
+                                            'end': kline['timestamp'] + 60000,  # +1 минута
+                                            'open': kline['open'],
+                                            'high': kline['high'],
+                                            'low': kline['low'],
+                                            'close': kline['close'],
+                                            'volume': kline['volume']
+                                        }
+                                        
+                                        await db_queries.save_historical_kline_data(symbol, kline_data)
+                                    
+                                    logger.debug(f"📊 Загружено {len(klines)} свечей для {symbol}")
+                                    
+                                except Exception as e:
+                                    logger.error(f"❌ Ошибка загрузки данных для {symbol} в диапазоне {current_start}-{current_end}: {e}")
+                                
+                                current_start = current_end
+                                await asyncio.sleep(0.1)  # Небольшая задержка между запросами
+                        
+                        await asyncio.sleep(0.5)  # Задержка между символами
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка обработки исторических данных для {symbol}: {e}")
+                        continue
+            
+            # Проверяем каждые 30 минут
+            await asyncio.sleep(1800)
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузчика исторических данных: {e}")
+            await asyncio.sleep(300)  # Повторить через 5 минут при ошибке
 
 async def periodic_cleanup():
     """Периодическая очистка старых данных"""
